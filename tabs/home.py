@@ -158,6 +158,12 @@ class HomeTab(ttk.Frame):
         env_config["PYTHONUNBUFFERED"] = "1"
         env_config["FORCE_COLOR"] = "1"
         env_config["PY_COLORS"] = "1"
+        env_config["PYTHONIOENCODING"] = "utf-8"
+
+        import sys
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = subprocess.CREATE_NO_WINDOW
 
         proc = subprocess.Popen(
             cmd,
@@ -166,7 +172,8 @@ class HomeTab(ttk.Frame):
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            env=env_config
+            env=env_config,
+            creationflags=creationflags
         )
 
         self.rows[name]["process"] = proc
@@ -265,4 +272,4 @@ class HomeTab(ttk.Frame):
             for name in self.rows:
                 self.refresh_row(name)
 
-        self.after(500, self.check_processes)
+        self.after(50, self.check_processes)

@@ -1,15 +1,30 @@
 import os
+import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
 
 import pystray
 from PIL import Image, ImageDraw
 from pystray import MenuItem as item
-from windows_toasts import WindowsToaster, Toast
+
+IS_WINDOWS = sys.platform == "win32"
+
+if IS_WINDOWS:
+    from windows_toasts import WindowsToaster, Toast, ToastImage, ToastDisplayImage
+else:
+    from plyer import notification
 
 from settings_manager import SettingsManager
 from tabs.home import HomeTab
-from themes import MainStyle, DARK_BG, DARK_FG, DARK_HOVER, LIGHT_BG, LIGHT_FG, LIGHT_HOVER, DARK_PRIMARY, LIGHT_PRIMARY
+from themes import MainStyle, DARK_BG, DARK_FG, DARK_PRIMARY, LIGHT_BG, LIGHT_FG, LIGHT_PRIMARY
+
+
+def get_asset_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
 
 
 class App(tk.Tk):
@@ -18,11 +33,14 @@ class App(tk.Tk):
 
         self.title("Compyctor v0.1")
         self.geometry("500x200")
-        self.iconbitmap("logo.ico")
+
+        if IS_WINDOWS and os.path.exists(get_asset_path("logo.ico")):
+            self.iconbitmap(get_asset_path("logo.ico"))
 
         self.settings_mgr = SettingsManager()
 
-        self.toaster = WindowsToaster('Compyctor')
+        if IS_WINDOWS:
+            self.toaster = WindowsToaster('Compyctor')
 
         self.style_system = MainStyle()
         self.current_theme = self.settings_mgr.settings.get("theme", "light")
@@ -70,7 +88,6 @@ class App(tk.Tk):
 
         self.create_tray_icon()
 
-
     def change_theme(self, theme_name):
         self.current_theme = theme_name
         self.style_system.theme_use(theme_name)
@@ -85,7 +102,6 @@ class App(tk.Tk):
         if hasattr(self, 'home') and hasattr(self.home, '_canvas'):
             new_bg = ttk.Style().lookup("TFrame", "background")
             self.home._canvas.configure(bg=new_bg)
-
 
     def update_menu_theme(self, theme_name):
         if theme_name == "dark":
@@ -107,7 +123,6 @@ class App(tk.Tk):
         self.settings_menu.configure(**menu_config)
         self.theme_menu.configure(**menu_config)
 
-
     def switch(self, frame):
         if self.current:
             self.current.pack_forget()
@@ -128,7 +143,7 @@ class App(tk.Tk):
         self.switch(TerminalTab(self.container, self, name, logs, process))
 
     def load_tray_image(self):
-        logo_path = "logo.ico"
+        logo_path = get_asset_path("logo.ico")
 
         if os.path.exists(logo_path):
             try:
@@ -141,7 +156,6 @@ class App(tk.Tk):
         draw = ImageDraw.Draw(image)
         draw.rectangle((16, 16, 48, 48), fill=(255, 0, 139))
         return image
-
 
     def create_tray_icon(self):
         menu = (
@@ -159,20 +173,29 @@ class App(tk.Tk):
         import threading
         threading.Thread(target=self.tray_icon.run, daemon=True).start()
 
-
     def hide_to_tray(self):
         self.withdraw()
 
-        toast = Toast()
-        toast.text_fields = ["Compyctor has been minimized to the system tray."]
+        if IS_WINDOWS:
+            toast = Toast()
+            toast.text_fields = ["Compyctor", "Minimized to the system tray."]
 
-        toast.on_activated = lambda _: self.after(0, self.show_window)
-        self.toaster.show_toast(toast)
+            icon_path = get_asset_path("logo.ico")
+            if os.path.exists(icon_path):
+                toast.AddImage(ToastDisplayImage(ToastImage(icon_path)))
+
+            toast.on_activated = lambda _: self.after(0, self.show_window)
+            self.toaster.show_toast(toast)
+        else:
+            notification.notify(
+                title="Compyctor",
+                message="Minimized to system tray.",
+                app_name="Compyctor"
+            )
 
     def show_window(self, icon=None, item=None):
         self.deiconify()
         self.lift()
-
 
     def quit_from_tray(self, icon=None, item=None):
         def check_running():
@@ -199,6 +222,8 @@ class App(tk.Tk):
 
                 self.destroy()
         else:
+            if self.tray_icon:
+                self.tray_icon.stop()
             self.destroy()
 
 

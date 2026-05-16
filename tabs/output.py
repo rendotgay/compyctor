@@ -1,34 +1,22 @@
 import re
+import os
 import sys
 import tkinter as tk
 from tkinter import ttk
 
 IS_WINDOWS = sys.platform == "win32"
 if IS_WINDOWS:
-    from windows_toasts import Toast
+    from windows_toasts import Toast, ToastImage, ToastDisplayImage
 else:
     from plyer import notification
 
 ANSI_PATTERN = re.compile(r"\x1b\[(\d+)(?:;\d+)*m")
 
 ANSI_MAP = {
-    "30": "black",
-    "31": "red",
-    "32": "green",
-    "33": "yellow",
-    "34": "blue",
-    "35": "magenta",
-    "36": "cyan",
-    "37": "white",
-
-    "90": "gray",
-    "91": "red",
-    "92": "green",
-    "93": "yellow",
-    "94": "blue",
-    "95": "magenta",
-    "96": "cyan",
-    "97": "white",
+    "30": "black", "31": "red", "32": "green", "33": "yellow",
+    "34": "blue", "35": "magenta", "36": "cyan", "37": "white",
+    "90": "gray", "91": "red", "92": "green", "93": "yellow",
+    "94": "blue", "95": "magenta", "96": "cyan", "97": "white",
 }
 
 
@@ -42,7 +30,6 @@ class TerminalTab(ttk.Frame):
         self.process = process
 
         self.auto_scroll = True
-
         self.read_index = 0
 
         self.script_info = self.controller.home.rows[name]["script"]
@@ -75,16 +62,10 @@ class TerminalTab(ttk.Frame):
         ).pack(side="right", padx=5, pady=2)
 
         self.text = tk.Text(
-            self,
-            wrap="word",
-            bg="#111111",
-            fg="#ffffff",
-            insertbackground="white",
-            relief="flat",
-            borderwidth=0
+            self, wrap="word", bg="#111111", fg="#ffffff",
+            insertbackground="white", relief="flat", borderwidth=0
         )
         self.text.pack(fill="both", expand=True)
-
         self.text.configure(state="disabled")
 
         for code, color in ANSI_MAP.items():
@@ -110,7 +91,8 @@ class TerminalTab(ttk.Frame):
 
                 if self.notify_var.get():
                     lower_line = line.lower()
-                    if "error" in lower_line or "traceback" in lower_line or "exception" in lower_line:
+                    if "ERROR" in line or "Error" in line or "traceback" in lower_line or "exception" in lower_line:
+                        print(lower_line)
                         self.trigger_error_notification(line.strip())
 
                 self._append(line)
@@ -125,6 +107,11 @@ class TerminalTab(ttk.Frame):
                 log_line[:60]
             ]
 
+            from gui import get_asset_path
+            icon_path = get_asset_path("logo.ico")
+            if os.path.exists(icon_path):
+                toast.AddImage(ToastDisplayImage(ToastImage(icon_path)))
+
             def on_click(_):
                 self.controller.after(0, self.controller.show_window)
                 self.controller.after(50, lambda: self.controller.show_terminal(self.name))
@@ -132,15 +119,16 @@ class TerminalTab(ttk.Frame):
             toast.on_activated = on_click
             self.controller.toaster.show_toast(toast)
         else:
+            from gui import get_asset_path
             notification.notify(
                 title=f"{self.name} Error!",
                 message=log_line[:60],
+                app_icon=get_asset_path("logo.png") if os.path.exists(get_asset_path("logo.png")) else None,
                 app_name="Compyctor"
             )
 
     def _append(self, text):
         self.text.configure(state="normal")
-
         i = 0
         current_tag = None
 
@@ -149,14 +137,11 @@ class TerminalTab(ttk.Frame):
                 end = i + 2
                 while end < len(text) and text[end] != "m":
                     end += 1
-
                 code = text[i + 2:end]
-
                 if code == "0":
                     current_tag = None
                 else:
                     current_tag = f"ansi_{code}" if code in ANSI_MAP else None
-
                 i = end + 1
                 continue
 
@@ -165,7 +150,6 @@ class TerminalTab(ttk.Frame):
 
         if self.auto_scroll:
             self.text.see("end")
-
         self.text.configure(state="disabled")
 
     def toggle_scroll(self):
