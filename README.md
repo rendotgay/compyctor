@@ -13,6 +13,7 @@ I wrote this for my own use since I have several scripts I run at startup, and w
 - Dark / Light themes
 
 ## Installation
+Download the [latest release](https://github.com/rendotgay/compyctor/releases) or
 ```bash
 git clone https://github.com/rendotgay/compyctor.git
 cd compyctor
