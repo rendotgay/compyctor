@@ -5,9 +5,10 @@ import subprocess
 
 
 class AutoUpdater:
-    def __init__(self, current_version, repo_owner, repo_name):
+    def __init__(self, current_version, repo_owner, repo_name, settings_mgr):
         self.current_version = current_version
         self.api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
+        self.settings_mgr = settings_mgr
         self.latest_release_data = None
 
         self.latest_version = ""
@@ -18,6 +19,10 @@ class AutoUpdater:
         try:
             from packaging.version import Version, InvalidVersion
 
+            prefs = self.settings_mgr.settings
+            official_only = prefs.get("official_releases_only", False)
+            skipped_version = prefs.get("skipped_version", "")
+
             headers = {"User-Agent": "Mozilla/5.0"}
             response = requests.get(self.api_url, headers=headers, timeout=10)
 
@@ -26,21 +31,31 @@ class AutoUpdater:
                 if not releases_list:
                     return False
 
-                self.latest_release_data = releases_list[0]
+                target_release = None
+                if official_only:
+                    for release in releases_list:
+                        if not release.get("prerelease", False):
+                            target_release = release
+                            break
+                else:
+                    target_release = releases_list[0]
 
+                if not target_release:
+                    return False
+
+                self.latest_release_data = target_release
                 self.latest_version = self.latest_release_data.get("tag_name", "").strip()
                 self.is_prerelease = self.latest_release_data.get("prerelease", False)
                 self.changelog = self.latest_release_data.get("body", "No changelog provided.")
 
+                if self.latest_version == skipped_version:
+                    return False
+
                 try:
                     latest_semver = Version(self.latest_version)
                     current_semver = Version(self.current_version)
-
                     return latest_semver > current_semver
-
                 except InvalidVersion:
-                    print(
-                        f"[Warning] Failed to parse semantic versions: {self.latest_version} or {self.current_version}")
                     latest_ver = self.latest_version.lstrip('v')
                     current_ver = self.current_version.lstrip('v')
                     return latest_ver > current_ver
@@ -87,16 +102,8 @@ class AutoUpdater:
                 f'move /y "{new_exe}" "{current_exe}" && '
                 f'explorer "{current_exe}"'
             )
-
-            import subprocess
-            subprocess.Popen(
-                f'cmd.exe /c "{cmd}"',
-                shell=True,
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
+            subprocess.Popen(f'cmd.exe /c "{cmd}"', shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
         else:
-            import subprocess
             cmd = f'sleep 2 && rm -f "{current_exe}" && mv -f "{new_exe}" "{current_exe}" && "{current_exe}" &'
             subprocess.Popen(cmd, shell=True)
-
         os._exit(0)
