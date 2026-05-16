@@ -20,6 +20,9 @@ from themes import MainStyle, DARK_BG, DARK_FG, DARK_PRIMARY, LIGHT_BG, LIGHT_FG
 from updater import AutoUpdater
 
 
+VERSION = "0.1.1"
+
+
 def get_asset_path(relative_path):
     try:
         base_path = sys._MEIPASS
@@ -32,7 +35,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        self.title("Compyctor v0.1")
+        self.title(f"Compyctor v{VERSION}")
         self.geometry("500x200")
 
         if IS_WINDOWS and os.path.exists(get_asset_path("logo.ico")):
@@ -86,7 +89,7 @@ class App(tk.Tk):
         self.show_home()
         self.update_menu_theme(self.current_theme)
 
-        self.updater = AutoUpdater(current_version="0.1", repo_owner="rendotgay", repo_name="compyctor",
+        self.updater = AutoUpdater(current_version=VERSION, repo_owner="rendotgay", repo_name="compyctor",
                                    settings_mgr=self.settings_mgr)
         self.after(2000, self.run_background_update_check)
 
