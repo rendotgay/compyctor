@@ -1,12 +1,10 @@
-import subprocess
-import threading
-from tkinter import ttk, messagebox
+import os
 import tkinter as tk
+from tkinter import ttk, messagebox
 
-from PIL import Image, ImageDraw
 import pystray
+from PIL import Image, ImageDraw
 from pystray import MenuItem as item
-
 from windows_toasts import WindowsToaster, Toast
 
 from settings_manager import SettingsManager
@@ -18,12 +16,13 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        self.title("Cumpactor v0.1")
+        self.title("Compyctor v0.1")
         self.geometry("500x200")
+        self.iconbitmap("logo.ico")
 
         self.settings_mgr = SettingsManager()
 
-        self.toaster = WindowsToaster('Cumpactor')
+        self.toaster = WindowsToaster('Compyctor')
 
         self.style_system = MainStyle()
         self.current_theme = self.settings_mgr.settings.get("theme", "light")
@@ -70,7 +69,6 @@ class App(tk.Tk):
         self.create_tray_icon()
 
 
-
     def change_theme(self, theme_name):
         self.current_theme = theme_name
         self.style_system.theme_use(theme_name)
@@ -104,12 +102,21 @@ class App(tk.Tk):
         from tabs.output import TerminalTab
         self.switch(TerminalTab(self.container, self, name, logs, process))
 
+    def load_tray_image(self):
+        logo_path = "logo.ico"
 
-    def create_image(self):
+        if os.path.exists(logo_path):
+            try:
+                img = Image.open(logo_path)
+                return img.resize((64, 64), Image.Resampling.LANCZOS)
+            except Exception:
+                pass
+
         image = Image.new("RGB", (64, 64), (30, 30, 30))
         draw = ImageDraw.Draw(image)
         draw.rectangle((16, 16, 48, 48), fill=(255, 0, 139))
         return image
+
 
     def create_tray_icon(self):
         menu = (
@@ -118,9 +125,9 @@ class App(tk.Tk):
         )
 
         self.tray_icon = pystray.Icon(
-            "Cumpactor",
-            self.create_image(),
-            "Cumpactor",
+            "Compyctor",
+            self.load_tray_image(),
+            "Compyctor",
             menu
         )
 
@@ -132,7 +139,7 @@ class App(tk.Tk):
         self.withdraw()
 
         toast = Toast()
-        toast.text_fields = ["Cumpactor has been minimized to the system tray."]
+        toast.text_fields = ["Compyctor has been minimized to the system tray."]
 
         toast.on_activated = lambda _: self.after(0, self.show_window)
         self.toaster.show_toast(toast)
