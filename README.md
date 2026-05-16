@@ -7,6 +7,7 @@ I wrote this for my own use since I have several scripts I run at startup, and w
 - Custom list of scripts
 - Auto-start scripts
 - View terminal output
+- Auto update
 - Minimize to tray
 - Windows Toast notifications on errors
 - Dark / Light themes
