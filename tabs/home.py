@@ -88,12 +88,12 @@ class HomeTab(ttk.Frame):
             if script.get("autostart"):
                 self.run_script(script)
 
-    def create_row(self, i, script):
+    def create_row(self, grid_row, script, sep=True):
         label = ttk.Label(self.body, text=script["name"])
-        label.grid(row=i, column=0, padx=4, pady=4, sticky="w")
+        label.grid(row=grid_row, column=0, padx=8, pady=6, sticky="w")
 
         container = ttk.Frame(self.body)
-        container.grid(row=i, column=1, padx=4, pady=4, sticky="e")
+        container.grid(row=grid_row, column=1, padx=8, pady=6, sticky="e")
 
         self.rows[script["name"]] = {
             "script": script,
@@ -102,6 +102,10 @@ class HomeTab(ttk.Frame):
         }
 
         self.refresh_row(script["name"])
+
+        if sep:
+            sep = ttk.Separator(self.body, orient="horizontal")
+            sep.grid(row=grid_row + 1, column=0, columnspan=2, sticky="ew", padx=4, pady=2)
 
     def open_add_script(self):
         AddScriptWindow(self, self.save_new_script)
@@ -137,7 +141,11 @@ class HomeTab(ttk.Frame):
 
         sorted_scripts = sorted(self.scriptManager.get_scripts(), key=lambda x: x["name"].lower())
         for i, script in enumerate(sorted_scripts):
-            self.create_row(i, script)
+            grid_row = i * 2
+            if i+1 == len(sorted_scripts):
+                self.create_row(grid_row, script, sep=False)
+            else:
+                self.create_row(grid_row, script)
 
             if script["name"] in running_processes:
                 self.rows[script["name"]]["process"] = running_processes[script["name"]]
