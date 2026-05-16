@@ -7,6 +7,8 @@ import pystray
 from PIL import Image, ImageDraw
 from pystray import MenuItem as item
 
+from updater import AutoUpdater
+
 IS_WINDOWS = sys.platform == "win32"
 
 if IS_WINDOWS:
@@ -87,6 +89,31 @@ class App(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
 
         self.create_tray_icon()
+
+        self.updater = AutoUpdater(current_version="0.1.1", repo_owner="rendotgay", repo_name="compyctor")
+        self.after(2000, self.run_background_update_check)
+
+    def run_background_update_check(self):
+        import threading
+        def worker():
+            if self.updater.check_for_update():
+                ver_type = " [PRE-RELEASE]" if self.updater.is_prerelease else ""
+
+                msg_title = "Update Available!"
+                msg_content = (
+                    f"A new update is available for Compyctor!\n\n"
+                    f"Current Version: {self.updater.current_version}\n"
+                    f"Latest Version: {self.updater.latest_version.removeprefix("v")}{ver_type}\n\n"
+                    f"--- Release Notes ---\n"
+                    f"{self.updater.changelog}\n\n"
+                    f"Would you like to download, install, and restart now?"
+                )
+
+                if messagebox.askyesno(msg_title, msg_content):
+                    self.updater.download_and_install()
+
+        threading.Thread(target=worker, daemon=True).start()
+
 
     def change_theme(self, theme_name):
         self.current_theme = theme_name
