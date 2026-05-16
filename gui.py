@@ -9,7 +9,7 @@ from windows_toasts import WindowsToaster, Toast
 
 from settings_manager import SettingsManager
 from tabs.home import HomeTab
-from themes import MainStyle
+from themes import MainStyle, DARK_BG, DARK_FG, DARK_HOVER, LIGHT_BG, LIGHT_FG, LIGHT_HOVER, DARK_PRIMARY, LIGHT_PRIMARY
 
 
 class App(tk.Tk):
@@ -63,6 +63,8 @@ class App(tk.Tk):
 
         self.show_home()
 
+        self.update_menu_theme(self.current_theme)
+
         self.tray_icon = None
         self.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
 
@@ -76,11 +78,34 @@ class App(tk.Tk):
         self.theme_var.set(theme_name)
 
         self.settings_mgr.settings["theme"] = theme_name
-        self.settings_mgr.save_settings()
+        self.settings_mgr.save_settings("theme", theme_name)
+
+        self.update_menu_theme(theme_name)
 
         if hasattr(self, 'home') and hasattr(self.home, '_canvas'):
             new_bg = ttk.Style().lookup("TFrame", "background")
             self.home._canvas.configure(bg=new_bg)
+
+
+    def update_menu_theme(self, theme_name):
+        if theme_name == "dark":
+            bg, fg, primary = DARK_BG, DARK_FG, DARK_PRIMARY
+        else:
+            bg, fg, primary = LIGHT_BG, LIGHT_FG, LIGHT_PRIMARY
+
+        menu_config = {
+            "bg": bg,
+            "fg": fg,
+            "activebackground": primary,
+            "activeforeground": fg,
+            "bd": 1,
+            "selectcolor": fg,
+            "relief": "flat",
+            "borderwidth": "0"
+        }
+
+        self.settings_menu.configure(**menu_config)
+        self.theme_menu.configure(**menu_config)
 
 
     def switch(self, frame):
