@@ -1,0 +1,32 @@
+# Compyctor
+A basic GUI for starting several Python scripts at once.
+
+I wrote this for my own use since I have several scripts I run at startup, and while tabs in the terminal help, it doesn't let me hide the window entirely. Plus, I'm not sure if you can automate starting terminals in tabs automatically, so I wrote this.
+
+## Features
+- Custom list of scripts
+- Auto-start scripts
+- View terminal output
+- Minimize to tray
+- Windows Toast notifications on errors
+- Dark / Light themes
+
+## Installation
+```bash
+git clone https://github.com/rendotgay/compyctor.git
+cd compyctor
+pip install -r requirements.txt
+python gui.py
+```
+
+## Usage
+1. Select `+ Add Script`
+2. Select the python script you want to run
+3. Set a name, arguments, or custom working directory and python directory if desired, as well as whether or not to auto-start
+4. Click `Save`
+5. Click `▶` to start the script
+6. Click `⏹` to stop the script
+7. Click `📄` to view the terminal output
+8. Click `🗘` to restart the script
+9. Click `🗑` to delete the script
+10. Close the window to minimize to tray
