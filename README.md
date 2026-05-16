@@ -1,3 +1,4 @@
+# <img src="logo.ico" width="32" height="32"> Compyctor
 # Compyctor
 A basic GUI for starting several Python scripts at once.
 
