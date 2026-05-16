@@ -1,10 +1,13 @@
 import json
 import os
+from pathlib import Path
 
 
 class SettingsManager:
     def __init__(self, filename="settings.json"):
-        self.filename = filename
+        self.config_dir = Path.home() / ".compyctor"
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.filename = self.config_dir / filename
         self.settings = self.load_settings()
 
     def load_settings(self):

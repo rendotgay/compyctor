@@ -1,3 +1,4 @@
+import os
 import subprocess
 import threading
 from collections import deque
@@ -26,7 +27,6 @@ class HomeTab(ttk.Frame):
             text="+ Add Script",
             command=self.open_add_script
         ).pack(side="left", padx=4, pady=4)
-
 
         bg = ttk.Style().lookup("TFrame", "background")
 
@@ -59,18 +59,16 @@ class HomeTab(ttk.Frame):
         self.after(100, self.run_autostart)
         self.after(500, self.check_processes)
 
-
     def _on_inner_configure(self, _event=None):
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
 
     def _on_canvas_configure(self, event):
-
         self._canvas.itemconfig(self._canvas_window, width=event.width)
 
     def _bind_mousewheel(self, _event=None):
-        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)  # Windows/macOS
-        self._canvas.bind_all("<Button-4>", self._on_mousewheel)  # Linux scroll up
-        self._canvas.bind_all("<Button-5>", self._on_mousewheel)  # Linux scroll down
+        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self._canvas.bind_all("<Button-4>", self._on_mousewheel)
+        self._canvas.bind_all("<Button-5>", self._on_mousewheel)
 
     def _unbind_mousewheel(self, _event=None):
         self._canvas.unbind_all("<MouseWheel>")
@@ -90,7 +88,6 @@ class HomeTab(ttk.Frame):
             if script.get("autostart"):
                 self.run_script(script)
 
-
     def create_row(self, i, script):
         label = ttk.Label(self.body, text=script["name"])
         label.grid(row=i, column=0, padx=4, pady=4, sticky="w")
@@ -105,7 +102,6 @@ class HomeTab(ttk.Frame):
         }
 
         self.refresh_row(script["name"])
-
 
     def open_add_script(self):
         AddScriptWindow(self, self.save_new_script)
@@ -123,15 +119,16 @@ class HomeTab(ttk.Frame):
     def save_new_script(self, data):
         self.scriptManager.add_script(cwd=data["cwd"], script=data["script"], name=data["name"], python=data["python"],
                                       args=data["args"], autostart=data["autostart"])
-
-        self.rows.clear()
-        self.logs.clear()
-
         self.build_ui()
 
     def build_ui(self):
         if not hasattr(self, "body") or not self.body.winfo_exists():
             return
+
+        running_processes = {}
+        for name, row in self.rows.items():
+            if row.get("process") is not None:
+                running_processes[name] = row["process"]
 
         for widget in self.body.winfo_children():
             widget.destroy()
@@ -142,6 +139,9 @@ class HomeTab(ttk.Frame):
         for i, script in enumerate(sorted_scripts):
             self.create_row(i, script)
 
+            if script["name"] in running_processes:
+                self.rows[script["name"]]["process"] = running_processes[script["name"]]
+                self.refresh_row(script["name"])
 
     def run_script(self, script):
         name = script["name"]
@@ -154,13 +154,19 @@ class HomeTab(ttk.Frame):
             *script.get("args", [])
         ]
 
+        env_config = os.environ.copy()
+        env_config["PYTHONUNBUFFERED"] = "1"
+        env_config["FORCE_COLOR"] = "1"
+        env_config["PY_COLORS"] = "1"
+
         proc = subprocess.Popen(
             cmd,
             cwd=script["cwd"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1
+            bufsize=1,
+            env=env_config
         )
 
         self.rows[name]["process"] = proc
@@ -173,11 +179,9 @@ class HomeTab(ttk.Frame):
 
         self.refresh_row(name)
 
-
     def _read_output(self, name, proc):
         for line in proc.stdout:
             self.logs[name].append(line)
-
 
     def stop_script(self, name):
         proc = self.rows[name]["process"]
@@ -198,7 +202,6 @@ class HomeTab(ttk.Frame):
             self.logs,
             self.rows[name]["process"]
         )
-
 
     def refresh_row(self, name):
         if name not in self.rows:
@@ -247,7 +250,6 @@ class HomeTab(ttk.Frame):
                 text="🗑",
                 command=lambda n=name: self.delete_script(n)
             ).pack(side="left")
-
 
     def check_processes(self):
         changed = False

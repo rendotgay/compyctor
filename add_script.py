@@ -1,3 +1,4 @@
+import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, messagebox, filedialog
@@ -21,7 +22,6 @@ class AddScriptWindow(tk.Toplevel):
         self.autostart_var = tk.BooleanVar()
 
         self.build_ui()
-
 
     def build_ui(self):
         pad = {"padx": 8, "pady": 5}
@@ -91,8 +91,6 @@ class AddScriptWindow(tk.Toplevel):
             command=self.save
         ).grid(row=6, column=0, columnspan=3, pady=15)
 
-
-
     def browse_cwd(self):
         path = filedialog.askdirectory()
         if path:
@@ -109,24 +107,29 @@ class AddScriptWindow(tk.Toplevel):
         p = Path(path)
 
         self.script_var.set(str(p))
-
         self.cwd_var.set(str(p.parent))
 
         if not self.name_var.get():
             self.name_var.set(p.stem)
 
         if not self.python_var.get():
-            venv_python = p.parent / ".venv" / "Scripts" / "python.exe"
+            if sys.platform == "win32":
+                venv_python = p.parent / ".venv" / "Scripts" / "python.exe"
+            else:
+                venv_python = p.parent / ".venv" / "bin" / "python"
+
             if venv_python.exists():
                 self.python_var.set(str(venv_python))
 
     def browse_python(self):
-        path = filedialog.askopenfilename(
-            filetypes=[("Python Executable", "*.exe"), ("All Files", "*.*")]
-        )
+        if sys.platform == "win32":
+            file_types = [("Python Executable", "*.exe"), ("All Files", "*.*")]
+        else:
+            file_types = [("All Files", "*.*")]
+
+        path = filedialog.askopenfilename(filetypes=file_types)
         if path:
             self.python_var.set(path)
-
 
     def save(self):
         if not self.cwd_var.get() or not self.script_var.get():

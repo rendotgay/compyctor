@@ -5,7 +5,9 @@ from pathlib import Path
 
 class ScriptManager:
     def __init__(self, filename="scripts.json"):
-        self.filename = filename
+        self.config_dir = Path.home() / ".compyctor"
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.filename = self.config_dir / filename
         self.data = self.load()
 
     def load(self):

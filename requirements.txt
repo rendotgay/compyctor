@@ -1,3 +1,4 @@
+plyer
 pillow
 windows-toasts
 pystray

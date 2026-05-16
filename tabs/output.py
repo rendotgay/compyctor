@@ -1,7 +1,13 @@
 import re
+import sys
 import tkinter as tk
 from tkinter import ttk
-from windows_toasts import Toast
+
+IS_WINDOWS = sys.platform == "win32"
+if IS_WINDOWS:
+    from windows_toasts import Toast
+else:
+    from plyer import notification
 
 ANSI_PATTERN = re.compile(r"\x1b\[(\d+)(?:;\d+)*m")
 
@@ -14,7 +20,15 @@ ANSI_MAP = {
     "35": "magenta",
     "36": "cyan",
     "37": "white",
+
     "90": "gray",
+    "91": "red",
+    "92": "green",
+    "93": "yellow",
+    "94": "blue",
+    "95": "magenta",
+    "96": "cyan",
+    "97": "white",
 }
 
 
@@ -29,6 +43,8 @@ class TerminalTab(ttk.Frame):
 
         self.auto_scroll = True
 
+        self.read_index = 0
+
         self.script_info = self.controller.home.rows[name]["script"]
 
         top = ttk.Frame(self)
@@ -42,7 +58,6 @@ class TerminalTab(ttk.Frame):
             command=self.toggle_scroll
         )
         self.scroll_btn.pack(side="left", padx=2)
-
 
         self.notify_var = tk.BooleanVar(value=self.script_info.get("notify_errors", False))
         self.notify_chk = ttk.Checkbutton(
@@ -82,7 +97,6 @@ class TerminalTab(ttk.Frame):
         self.script_info["notify_errors"] = is_checked
         self.controller.home.scriptManager.save()
 
-
     def stream_logs(self):
         if not self.winfo_exists():
             return
@@ -90,11 +104,10 @@ class TerminalTab(ttk.Frame):
         buffer = self.logs.get(self.name)
 
         if buffer:
-            chunk = []
-            while buffer:
-                chunk.append(buffer.popleft())
+            while self.read_index < len(buffer):
+                line = buffer[self.read_index]
+                self.read_index += 1
 
-            for line in chunk:
                 if self.notify_var.get():
                     lower_line = line.lower()
                     if "error" in lower_line or "traceback" in lower_line or "exception" in lower_line:
@@ -105,20 +118,25 @@ class TerminalTab(ttk.Frame):
         self.after(50, self.stream_logs)
 
     def trigger_error_notification(self, log_line):
-        toast = Toast()
+        if IS_WINDOWS:
+            toast = Toast()
+            toast.text_fields = [
+                f"{self.name} has encountered an error!",
+                log_line[:60]
+            ]
 
-        toast.text_fields = [
-            f"{self.name} has encountered an error!",
-            log_line[:60]
-        ]
+            def on_click(_):
+                self.controller.after(0, self.controller.show_window)
+                self.controller.after(50, lambda: self.controller.show_terminal(self.name))
 
-        def on_click(_):
-            self.controller.after(0, self.controller.show_window)
-            self.controller.after(50, lambda: self.controller.show_terminal(self.name))
-
-        toast.on_activated = on_click
-        self.controller.toaster.show_toast(toast)
-
+            toast.on_activated = on_click
+            self.controller.toaster.show_toast(toast)
+        else:
+            notification.notify(
+                title=f"{self.name} Error!",
+                message=log_line[:60],
+                app_name="Compyctor"
+            )
 
     def _append(self, text):
         self.text.configure(state="normal")
@@ -149,7 +167,6 @@ class TerminalTab(ttk.Frame):
             self.text.see("end")
 
         self.text.configure(state="disabled")
-
 
     def toggle_scroll(self):
         self.auto_scroll = not self.auto_scroll
