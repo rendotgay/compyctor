@@ -1,7 +1,13 @@
 # <img src="logo.ico" width="32" height="32"> Compyctor
 A basic GUI for starting several Python scripts at once.
 
-I wrote this for my own use since I have several scripts I run at startup, and while tabs in the terminal help, it doesn't let me hide the window entirely. Plus, I'm not sure if you can automate starting terminals in tabs automatically, so I wrote this.
+If you're anything like me, 
+you've probably written countless Python scripts for various purposes, 
+and need an easy way to start them every time you boot up your computer. 
+Tabs in the terminal help, 
+but it doesn't let me hide the window entirely. 
+Plus, I'm not sure if you can automate starting terminals in tabs automatically, 
+so I wrote this.
 
 ## Features
 - Custom list of scripts

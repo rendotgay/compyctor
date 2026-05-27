@@ -1,0 +1,10 @@
+{
+    "bg":       "#0d1117",
+    "fg":       "#f0f6fc",
+    "field_bg": "#151b23",
+    "primary":  "#2e9a40",
+    "hover":    "#252c34",
+    "info":     "#09b399",
+    "warning":  "#f79532",
+    "error":    "#ef4e7c"
+}
