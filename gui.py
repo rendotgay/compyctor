@@ -60,7 +60,7 @@ def exception_hook(exctype, value, tb):
     sys.exit(1)
 
 sys.excepthook = exception_hook
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 _COOLDOWN_OPTIONS = [5, 10, 30, 60, 300]
 

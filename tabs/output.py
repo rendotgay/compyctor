@@ -6,7 +6,7 @@ from PyQt6.QtCore import Qt, QTimer, QObject, QEvent
 from PyQt6.QtGui import QColor, QTextCharFormat, QFont, QTextCursor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QCheckBox, QTextEdit, QFrame, QTabWidget, QTextBrowser
+    QLabel, QCheckBox, QTextEdit, QFrame, QTabWidget, QTextBrowser, QMessageBox
 )
 from tabs.editor import FileEditorWidget
 import urllib.parse
