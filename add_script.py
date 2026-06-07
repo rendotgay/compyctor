@@ -14,6 +14,7 @@ class AddScriptDialog(QDialog):
         super().__init__(parent)
 
         self.result_data = None
+        self.open_editor = False
         self._existing = existing
 
         title = "Edit Script" if existing else "Add Script"
@@ -84,11 +85,22 @@ class AddScriptDialog(QDialog):
         self.autostart_chk = QCheckBox("Autostart")
         root.addWidget(self.autostart_chk)
 
-        # Save button
+        # Buttons
+        btn_layout = QHBoxLayout()
+        
+        self.open_editor_btn = QPushButton("Open File Editor")
+        self.open_editor_btn.setFixedHeight(26)
+        self.open_editor_btn.clicked.connect(self._open_editor)
+        if not self._existing:
+            self.open_editor_btn.hide()
+            
         save_btn = QPushButton("Save")
         save_btn.setFixedHeight(26)
         save_btn.clicked.connect(self._save)
-        root.addWidget(save_btn)
+        
+        btn_layout.addWidget(self.open_editor_btn)
+        btn_layout.addWidget(save_btn)
+        root.addLayout(btn_layout)
 
     def _populate(self, script: dict):
         self.name_edit.setText(script.get("name", ""))
@@ -151,3 +163,7 @@ class AddScriptDialog(QDialog):
             "autostart": self.autostart_chk.isChecked(),
         }
         self.accept()
+
+    def _open_editor(self):
+        self.open_editor = True
+        self.reject()

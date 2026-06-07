@@ -13,6 +13,7 @@ so I wrote this.
 - Custom list of scripts
 - Auto-start scripts
 - View terminal output
+- File editor with Python syntax highlighting and autocompletion
 - Auto update
 - Minimize to tray
 - Windows Toast notifications on errors

@@ -1,20 +1,17 @@
 import os
 import sys
 import re
-import time
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QColor, QTextCharFormat, QFont, QTextCursor
+from PyQt6.QtCore import Qt, QTimer, QObject, QEvent
+from PyQt6.QtGui import QColor, QTextCharFormat, QFont, QTextCursor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QCheckBox, QTextEdit, QFrame
+    QLabel, QCheckBox, QTextEdit, QFrame, QTabWidget, QTextBrowser
 )
+from tabs.editor import FileEditorWidget
+import urllib.parse
 
 IS_WINDOWS = sys.platform == "win32"
-if IS_WINDOWS:
-    from windows_toasts import Toast, ToastImage, ToastDisplayImage
-else:
-    from plyer import notification
 
 # Full ANSI SGR color map
 # Keys are SGR codes, values are (color_or_None, is_bold)
@@ -79,8 +76,10 @@ def _parse_ansi(text: str):
             yield text[pos:start], current_fg, current_bold
         pos = end
 
-        codes = m.group(1).split(";") if m.group(1) else ["0"]
-        for code in codes:
+        parts = m.group(1).split(";") if m.group(1) else ["0"]
+        i = 0
+        while i < len(parts):
+            code = parts[i]
             if code == "0" or code == "":
                 current_fg = None
                 current_bold = False
@@ -88,25 +87,26 @@ def _parse_ansi(text: str):
                 current_bold = True
             elif code == "22":
                 current_bold = False
+            elif code == "38":
+                if i + 2 < len(parts) and parts[i+1] == "5":
+                    try:
+                        n = int(parts[i+2])
+                        current_fg = _256_to_hex(n)
+                    except ValueError:
+                        pass
+                    i += 2
+                elif i + 4 < len(parts) and parts[i+1] == "2":
+                    try:
+                        r, g, b = int(parts[i+2]), int(parts[i+3]), int(parts[i+4])
+                        current_fg = f"#{r:02x}{g:02x}{b:02x}"
+                    except ValueError:
+                        pass
+                    i += 4
             elif code in _ANSI_COLORS:
                 color, bold_flag = _ANSI_COLORS[code]
                 if color:
                     current_fg = color
-
-        joined = m.group(1)
-        parts = joined.split(";")
-        if len(parts) >= 3 and parts[0] == "38" and parts[1] == "5":
-            try:
-                n = int(parts[2])
-                current_fg = _256_to_hex(n)
-            except ValueError:
-                pass
-        elif len(parts) >= 5 and parts[0] == "38" and parts[1] == "2":
-            try:
-                r, g, b = int(parts[2]), int(parts[3]), int(parts[4])
-                current_fg = f"#{r:02x}{g:02x}{b:02x}"
-            except ValueError:
-                pass
+            i += 1
 
     if pos < len(text):
         yield text[pos:], current_fg, current_bold
@@ -142,6 +142,18 @@ def _terminal_font() -> QFont:
     return QFont("Monospace", 9)
 
 
+class ZoomEventFilter(QObject):
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Wheel:
+            if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+                delta = event.angleDelta().y()
+                if delta > 0:
+                    obj.zoomIn(1)
+                elif delta < 0:
+                    obj.zoomOut(1)
+                return True
+        return super().eventFilter(obj, event)
+
 class TerminalTab(QWidget):
     def __init__(self, controller, name, logs, process):
         super().__init__()
@@ -152,8 +164,6 @@ class TerminalTab(QWidget):
         self.process = process
         self.auto_scroll = True
         self.read_index = 0
-        self._last_notification_time = 0.0
-        self._NOTIFY_COOLDOWN = 10.0
 
         self.script_info = self.controller.home.rows[name]["script"]
 
@@ -168,6 +178,14 @@ class TerminalTab(QWidget):
 
         name_label = QLabel(f"<b>{name}</b>")
         top_layout.addWidget(name_label)
+
+        self.restart_btn = self.controller.home._make_icon_btn("restart.svg", "Restart")
+        self.restart_btn.clicked.connect(self._restart_script)
+        top_layout.addWidget(self.restart_btn)
+
+        self.stop_btn = self.controller.home._make_icon_btn("stop.svg", "Stop")
+        self.stop_btn.clicked.connect(self._toggle_process)
+        top_layout.addWidget(self.stop_btn)
 
         self.scroll_btn = QPushButton("AutoScroll: ON")
         self.scroll_btn.setFixedHeight(22)
@@ -195,16 +213,57 @@ class TerminalTab(QWidget):
         sep.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(sep)
 
-        self.text = QTextEdit()
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+
+        self.terminal_container = QWidget()
+        term_layout = QVBoxLayout(self.terminal_container)
+        term_layout.setContentsMargins(0, 0, 0, 0)
+        term_layout.setSpacing(0)
+
+        self.text = QTextBrowser()
         self.text.setReadOnly(True)
         self.text.setObjectName("logView")
         self.text.setFont(_terminal_font())
-        self.text.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
-        layout.addWidget(self.text)
+        self.text.setLineWrapMode(QTextBrowser.LineWrapMode.WidgetWidth)
+        self.text.setOpenLinks(False)
+        self.text.anchorClicked.connect(self._on_anchor_clicked)
+        term_layout.addWidget(self.text)
+
+        self._zoom_filter = ZoomEventFilter(self.text)
+        self.text.viewport().installEventFilter(self._zoom_filter)
+        
+        z_in1 = QShortcut(QKeySequence("Ctrl+="), self.text)
+        z_in1.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        z_in1.activated.connect(lambda: self.text.zoomIn(1))
+        
+        z_in2 = QShortcut(QKeySequence("Ctrl++"), self.text)
+        z_in2.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        z_in2.activated.connect(lambda: self.text.zoomIn(1))
+        
+        z_out = QShortcut(QKeySequence("Ctrl+-"), self.text)
+        z_out.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        z_out.activated.connect(lambda: self.text.zoomOut(1))
+
+        self.editor = FileEditorWidget(self.controller, cwd=self.script_info.get("cwd"), on_pop_out=self._pop_out_editor)
+
+        self.tabs.addTab(self.terminal_container, "Output")
+        self.tabs.addTab(self.editor, "Code Editor")
 
         self._stream_timer = QTimer(self)
         self._stream_timer.timeout.connect(self._stream_logs)
         self._stream_timer.start(50)
+
+    def _restart_script(self):
+        self.controller.home.restart_script(self.name)
+
+    def _toggle_process(self):
+        proc = self.controller.home.rows[self.name].get("process")
+        alive = proc and proc.poll() is None
+        if alive:
+            self.controller.home.stop_script(self.name)
+        else:
+            self.controller.home.run_script(self.script_info)
 
     def _toggle_error_notifications(self, checked):
         self.script_info["notify_errors"] = checked
@@ -215,20 +274,47 @@ class TerminalTab(QWidget):
         self.scroll_btn.setText("AutoScroll: ON" if checked else "AutoScroll: OFF")
 
     def _go_back(self):
+        if hasattr(self, 'editor') and self.editor.has_any_unsaved_changes():
+            reply = QMessageBox.question(
+                self, "Unsaved Changes",
+                "You have unsaved files. Do you want to save them before leaving?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save
+            )
+            if reply == QMessageBox.StandardButton.Save:
+                self.editor.save_file()
+            elif reply == QMessageBox.StandardButton.Cancel:
+                return
+                
         self._stream_timer.stop()
         self.controller.show_home()
 
     def _stream_logs(self):
+        proc = self.controller.home.rows[self.name].get("process")
+        alive = proc and proc.poll() is None
+        
+        target_tooltip = "Stop" if alive else "Run"
+        if self.stop_btn.toolTip() != target_tooltip:
+            self.stop_btn.setToolTip(target_tooltip)
+            from tabs.home import _tint_icon
+            fg = self.controller.theme_mgr.last_theme_data.get("fg", "#ffffff")
+            svg_name = "stop.svg" if alive else "run.svg"
+            self.stop_btn.setIcon(_tint_icon(svg_name, QColor(fg)))
+
         buffer = self.logs.get(self.name)
         if not buffer:
             return
 
         buf_len = len(buffer)
+        if buf_len < self.read_index:
+            self.read_index = 0
+            self.text.clear()
+
         if self.read_index >= buf_len:
             return
 
         batch = []
-        end = min(self.read_index + 200, buf_len)
+        end = buf_len
         for i in range(self.read_index, end):
             batch.append(buffer[i])
         self.read_index = end
@@ -239,16 +325,12 @@ class TerminalTab(QWidget):
         cursor = self.text.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
-        for line in batch:
-            if self.notify_chk.isChecked():
-                ll = line.lower()
-                if "error" in ll or "traceback" in ll or "exception" in ll:
-                    now = time.monotonic()
-                    if now - self._last_notification_time >= self._NOTIFY_COOLDOWN:
-                        self._last_notification_time = now
-                        self._trigger_error_notification(line.strip())
-
-            self._append_line(cursor, line)
+        for item in batch:
+            if isinstance(item, tuple):
+                line, is_stderr = item
+            else:
+                line, is_stderr = item, False
+            self._append_line(cursor, line, is_stderr)
 
         self.text.setTextCursor(cursor)
 
@@ -257,9 +339,11 @@ class TerminalTab(QWidget):
         else:
             sb.setValue(scroll_pos)
 
-    def _append_line(self, cursor: QTextCursor, text: str):
+    def _append_line(self, cursor: QTextCursor, text: str, is_stderr: bool = False):
         """Parse ANSI codes and insert colored spans into the QTextEdit."""
         default_fg = self.controller.theme_mgr.last_theme_data.get("fg", "#e8e8e8")
+        if is_stderr:
+            default_fg = self.controller.theme_mgr.last_theme_data.get("error", "#ff4444")
 
         for fragment, fg, bold in _parse_ansi(text):
             if not fragment:
@@ -272,26 +356,51 @@ class TerminalTab(QWidget):
                 fmt.setFontWeight(QFont.Weight.Bold)
             else:
                 fmt.setFontWeight(QFont.Weight.Normal)
-            cursor.insertText(fragment, fmt)
+            
+            m = re.search(r'File "([^"]+)", line (\d+)', fragment)
+            if m:
+                path = m.group(1)
+                line_num = m.group(2)
+                
+                link_fmt = QTextCharFormat(fmt)
+                link_fmt.setAnchor(True)
+                safe_path = urllib.parse.quote(path)
+                link_fmt.setAnchorHref(f"traceback:///?path={safe_path}&line={line_num}")
+                link_fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
+                
+                cursor.insertText(fragment[:m.start()], fmt)
+                cursor.insertText(fragment[m.start():m.end()], link_fmt)
+                cursor.insertText(fragment[m.end():], fmt)
+            else:
+                cursor.insertText(fragment, fmt)
 
-    def _trigger_error_notification(self, log_line):
-        from gui import get_asset_path
-        if IS_WINDOWS:
-            toast = Toast()
-            toast.text_fields = [f"{self.name} has encountered an error!", log_line[:60]]
-            icon_path = get_asset_path("logo.ico")
-            if os.path.exists(icon_path):
-                toast.AddImage(ToastDisplayImage(ToastImage(icon_path)))
-            toast.on_activated = lambda _: (
-                QTimer.singleShot(0, self.controller.show_window),
-                QTimer.singleShot(50, lambda: self.controller.show_terminal(self.name)),
-            )
-            self.controller.toaster.show_toast(toast)
-        else:
-            icon_path = get_asset_path("logo.png")
-            notification.notify(
-                title=f"{self.name} Error!",
-                message=log_line[:60],
-                app_icon=icon_path if os.path.exists(icon_path) else None,
-                app_name="Compyctor"
-            )
+    def _on_anchor_clicked(self, url):
+        if url.scheme() == "traceback":
+            from urllib.parse import parse_qs
+            query = parse_qs(url.query())
+            path = urllib.parse.unquote(query.get("path", [""])[0])
+            line_num = int(query.get("line", ["1"])[0])
+            
+            if self.editor.load_file(path, line_num):
+                self.tabs.setCurrentWidget(self.editor)
+
+    def _pop_out_editor(self):
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout
+        self.tabs.removeTab(self.tabs.indexOf(self.editor))
+        
+        self.popout_window = QDialog(self)
+        self.popout_window.setWindowTitle("Code Editor")
+        self.popout_window.resize(800, 600)
+        
+        layout = QVBoxLayout(self.popout_window)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.editor.popout_btn.hide()
+        layout.addWidget(self.editor)
+        self.editor.show()
+        
+        self.popout_window.finished.connect(self._on_popout_closed)
+        self.popout_window.show()
+
+    def _on_popout_closed(self):
+        self.editor.popout_btn.show()
+        self.tabs.addTab(self.editor, "Code Editor")

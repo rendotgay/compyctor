@@ -23,7 +23,44 @@ from themes import ThemeManager
 from tabs.home import HomeTab
 from updater import AutoUpdater
 
-VERSION = "0.2.0"
+def exception_hook(exctype, value, tb):
+    import traceback
+    tb_lines = traceback.format_exception(exctype, value, tb)
+    tb_text = "".join(tb_lines)
+
+    try:
+        from PyQt6.QtWidgets import QMessageBox, QApplication
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+            
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Icon.Critical)
+        msg_box.setWindowTitle("Compyctor - Application Crash")
+        msg_box.setText("An unexpected error occurred and the application has crashed.")
+        msg_box.setInformativeText("Please see the detailed traceback below for error details.")
+        msg_box.setDetailedText(tb_text)
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg_box.exec()
+    except Exception:
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"An unexpected error occurred and the application has crashed.\n\n"
+                f"Error:\n{exctype.__name__}: {value}\n\n"
+                f"Traceback:\n{tb_text}",
+                "Compyctor - Crash",
+                0x10  # MB_ICONERROR
+            )
+        except Exception:
+            print("Failed to show GUI message box for crash.", file=sys.stderr)
+            print(tb_text, file=sys.stderr)
+            
+    sys.exit(1)
+
+sys.excepthook = exception_hook
+VERSION = "0.3.0"
 
 _COOLDOWN_OPTIONS = [5, 10, 30, 60, 300]
 
@@ -59,6 +96,8 @@ class App(QMainWindow):
         self.home = HomeTab(self)
         self.stack.addWidget(self.home)
         self.stack.setCurrentWidget(self.home)
+
+        self._is_quitting = False
 
         self._build_toolbar()
         self._build_tray()
@@ -225,10 +264,15 @@ class App(QMainWindow):
                     proc.terminate()
                 except Exception:
                     pass
+        self._is_quitting = True
         self.tray.hide()
         QApplication.quit()
 
     def closeEvent(self, event):
+        if self._is_quitting:
+            event.accept()
+            return
+
         event.ignore()
         self.hide()
         if IS_WINDOWS:

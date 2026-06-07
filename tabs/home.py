@@ -2,7 +2,14 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
+
+IS_WINDOWS = sys.platform == "win32"
+if IS_WINDOWS:
+    from windows_toasts import Toast, ToastImage, ToastDisplayImage
+else:
+    from plyer import notification
 
 from PyQt6.QtCore import Qt, QTimer, QSize, QRectF
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
@@ -173,6 +180,8 @@ class HomeTab(QWidget):
             "process": None,
             "btn_container": btn_container,
             "btn_layout": btn_layout,
+            "notify_read_index": 0,
+            "last_notification_time": 0.0,
         }
 
         self.refresh_row(name)
@@ -248,6 +257,11 @@ class HomeTab(QWidget):
         if dlg.result_data:
             self.scriptManager.remove_script(name)
             self.save_new_script(dlg.result_data)
+        if getattr(dlg, 'open_editor', False):
+            self.controller.show_terminal(name)
+            term_tab = self.controller.stack.currentWidget()
+            if hasattr(term_tab, 'tabs'):
+                term_tab.tabs.setCurrentIndex(1)
 
     def save_new_script(self, data):
         self.scriptManager.add_script(
@@ -261,8 +275,19 @@ class HomeTab(QWidget):
         self.build_ui()
 
     def delete_script(self, name):
+        from PyQt6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Confirm Delete", 
+            f"Are you sure you want to delete the script '{name}' from the app?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+            
         proc = self.rows[name].get("process")
         if proc and proc.poll() is None:
+            QMessageBox.warning(self, "Cannot Delete", "Cannot delete a script while it is running.")
             return
         self.scriptManager.remove_script(name)
         self.build_ui()
@@ -270,6 +295,7 @@ class HomeTab(QWidget):
     def run_script(self, script):
         name = script["name"]
         self.logs[name] = deque(maxlen=5000)
+        self.rows[name]["notify_read_index"] = 0
 
         cmd = [script["python"], script["script"], *script.get("args", [])]
 
@@ -295,7 +321,7 @@ class HomeTab(QWidget):
             cmd,
             cwd=script["cwd"],
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -305,12 +331,13 @@ class HomeTab(QWidget):
         )
 
         self.rows[name]["process"] = proc
-        threading.Thread(target=self._read_output, args=(name, proc), daemon=True).start()
+        threading.Thread(target=self._read_output, args=(name, proc.stdout, False), daemon=True).start()
+        threading.Thread(target=self._read_output, args=(name, proc.stderr, True), daemon=True).start()
         self.refresh_row(name)
 
-    def _read_output(self, name, proc):
-        for line in proc.stdout:
-            self.logs[name].append(line)
+    def _read_output(self, name, stream, is_stderr):
+        for line in stream:
+            self.logs[name].append((line, is_stderr))
 
     def stop_script(self, name):
         proc = self.rows[name]["process"]
@@ -333,5 +360,56 @@ class HomeTab(QWidget):
             if proc and proc.poll() is not None:
                 row["process"] = None
                 changed.append(name)
+            
+            if row["script"].get("notify_errors"):
+                logs = self.logs.get(name)
+                if logs:
+                    idx = row.get("notify_read_index", 0)
+                    if len(logs) < idx:
+                        idx = 0
+                    
+                    if idx < len(logs):
+                        batch = []
+                        end = len(logs)
+                        for i in range(idx, end):
+                            batch.append(logs[i])
+                        row["notify_read_index"] = end
+                        
+                        for item in batch:
+                            if isinstance(item, tuple):
+                                line, is_stderr = item
+                            else:
+                                line, is_stderr = item, False
+                                
+                            if is_stderr:
+                                ll = line.lower()
+                                if "error" in ll or "traceback" in ll or "exception" in ll:
+                                    now = time.monotonic()
+                                    if now - row.get("last_notification_time", 0.0) >= 10.0:
+                                        row["last_notification_time"] = now
+                                        self._trigger_error_notification(name, line.strip())
+
         for name in changed:
             self.refresh_row(name)
+
+    def _trigger_error_notification(self, name, log_line):
+        from gui import get_asset_path
+        if IS_WINDOWS:
+            toast = Toast()
+            toast.text_fields = [f"{name} has encountered an error!", log_line[:60]]
+            icon_path = get_asset_path("logo.ico")
+            if os.path.exists(icon_path):
+                toast.AddImage(ToastDisplayImage(ToastImage(icon_path)))
+            toast.on_activated = lambda _: (
+                QTimer.singleShot(0, self.controller.show_window),
+                QTimer.singleShot(50, lambda: self.controller.show_terminal(name)),
+            )
+            self.controller.toaster.show_toast(toast)
+        else:
+            icon_path = get_asset_path("logo.png")
+            notification.notify(
+                title=f"{name} Error!",
+                message=log_line[:60],
+                app_icon=icon_path if os.path.exists(icon_path) else None,
+                app_name="Compyctor"
+            )
