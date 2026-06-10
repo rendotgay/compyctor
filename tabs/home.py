@@ -322,10 +322,6 @@ class HomeTab(QWidget):
             cwd=script["cwd"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
             env=env,
             creationflags=flags,
         )
@@ -336,8 +332,37 @@ class HomeTab(QWidget):
         self.refresh_row(name)
 
     def _read_output(self, name, stream, is_stderr):
-        for line in stream:
-            self.logs[name].append((line, is_stderr))
+        import codecs
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        pending_cr = False
+        while True:
+            try:
+                chunk = stream.read1(4096)
+                if not chunk:
+                    text = decoder.decode(b"", final=True)
+                    if pending_cr:
+                        text = "\r" + text
+                    if text:
+                        text = text.replace("\r\n", "\n")
+                        if text:
+                            self.logs[name].append((text, is_stderr))
+                    break
+                
+                text = decoder.decode(chunk)
+                if pending_cr:
+                    text = "\r" + text
+                    pending_cr = False
+                
+                if text.endswith("\r"):
+                    pending_cr = True
+                    text = text[:-1]
+                
+                if text:
+                    text = text.replace("\r\n", "\n")
+                    if text:
+                        self.logs[name].append((text, is_stderr))
+            except Exception:
+                break
 
     def stop_script(self, name):
         proc = self.rows[name]["process"]

@@ -41,7 +41,7 @@ _ANSI_COLORS = {
 }
 
 # SGR foreground only; other CSI sequences are stripped (cursor moves, erase, etc.)
-_ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
+_ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;]*)([mK])")
 _ANSI_CSI_ANY_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 _ANSI_OSC_RE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
 # Two-char escapes (e.g. ESC =), NOT CSI — must not include '[' (0x5B)
@@ -53,7 +53,8 @@ def _strip_non_sgr_ansi(text: str) -> str:
     text = _ANSI_OSC_RE.sub("", text)
 
     def _csi_repl(m: re.Match) -> str:
-        return "" if not m.group(0).endswith("m") else m.group(0)
+        s = m.group(0)
+        return s if (s.endswith("m") or s.endswith("K")) else ""
 
     text = _ANSI_CSI_ANY_RE.sub(_csi_repl, text)
     text = _ANSI_OTHER_RE.sub("", text)
@@ -62,8 +63,8 @@ def _strip_non_sgr_ansi(text: str) -> str:
 
 def _parse_ansi(text: str):
     """
-    Yield (fragment: str, fg_color: str | None, bold: bool) tuples.
-    Handles compound codes like ESC[1;32m.
+    Yield (fragment: str, fg_color: str | None, bold: bool, ctrl: tuple | None) tuples.
+    Handles compound codes like ESC[1;32m and ESC[K.
     """
     text = _strip_non_sgr_ansi(text)
     pos = 0
@@ -73,43 +74,48 @@ def _parse_ansi(text: str):
     for m in _ANSI_SGR_RE.finditer(text):
         start, end = m.span()
         if start > pos:
-            yield text[pos:start], current_fg, current_bold
+            yield text[pos:start], current_fg, current_bold, None
         pos = end
 
-        parts = m.group(1).split(";") if m.group(1) else ["0"]
-        i = 0
-        while i < len(parts):
-            code = parts[i]
-            if code == "0" or code == "":
-                current_fg = None
-                current_bold = False
-            elif code == "1":
-                current_bold = True
-            elif code == "22":
-                current_bold = False
-            elif code == "38":
-                if i + 2 < len(parts) and parts[i+1] == "5":
-                    try:
-                        n = int(parts[i+2])
-                        current_fg = _256_to_hex(n)
-                    except ValueError:
-                        pass
-                    i += 2
-                elif i + 4 < len(parts) and parts[i+1] == "2":
-                    try:
-                        r, g, b = int(parts[i+2]), int(parts[i+3]), int(parts[i+4])
-                        current_fg = f"#{r:02x}{g:02x}{b:02x}"
-                    except ValueError:
-                        pass
-                    i += 4
-            elif code in _ANSI_COLORS:
-                color, bold_flag = _ANSI_COLORS[code]
-                if color:
-                    current_fg = color
-            i += 1
+        cmd = m.group(2) if len(m.groups()) > 1 else "m"
+        if cmd == "K":
+            param = m.group(1) or "0"
+            yield "", current_fg, current_bold, ("K", param)
+        elif cmd == "m":
+            parts = m.group(1).split(";") if m.group(1) else ["0"]
+            i = 0
+            while i < len(parts):
+                code = parts[i]
+                if code == "0" or code == "":
+                    current_fg = None
+                    current_bold = False
+                elif code == "1":
+                    current_bold = True
+                elif code == "22":
+                    current_bold = False
+                elif code == "38":
+                    if i + 2 < len(parts) and parts[i+1] == "5":
+                        try:
+                            n = int(parts[i+2])
+                            current_fg = _256_to_hex(n)
+                        except ValueError:
+                            pass
+                        i += 2
+                    elif i + 4 < len(parts) and parts[i+1] == "2":
+                        try:
+                            r, g, b = int(parts[i+2]), int(parts[i+3]), int(parts[i+4])
+                            current_fg = f"#{r:02x}{g:02x}{b:02x}"
+                        except ValueError:
+                            pass
+                        i += 4
+                elif code in _ANSI_COLORS:
+                    color, bold_flag = _ANSI_COLORS[code]
+                    if color:
+                        current_fg = color
+                i += 1
 
     if pos < len(text):
-        yield text[pos:], current_fg, current_bold
+        yield text[pos:], current_fg, current_bold, None
 
 
 def _256_to_hex(n: int) -> str:
@@ -345,34 +351,78 @@ class TerminalTab(QWidget):
         if is_stderr:
             default_fg = self.controller.theme_mgr.last_theme_data.get("error", "#ff4444")
 
-        for fragment, fg, bold in _parse_ansi(text):
+        for fragment, fg, bold, ctrl in _parse_ansi(text):
+            if ctrl:
+                if ctrl[0] == "K":
+                    param = ctrl[1]
+                    if param == "0":
+                        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+                        cursor.removeSelectedText()
+                    elif param == "1":
+                        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor)
+                        cursor.removeSelectedText()
+                    elif param == "2":
+                        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+                        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+                        cursor.removeSelectedText()
+                continue
+
             if not fragment:
                 continue
-            fmt = QTextCharFormat()
-            fmt.setForeground(QColor(default_fg))
-            if fg:
-                fmt.setForeground(QColor(fg))
-            if bold:
-                fmt.setFontWeight(QFont.Weight.Bold)
-            else:
-                fmt.setFontWeight(QFont.Weight.Normal)
+
+            parts = fragment.split('\r')
+            for i, part in enumerate(parts):
+                if i > 0:
+                    cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+                
+                if not part:
+                    continue
+
+                fmt = QTextCharFormat()
+                fmt.setForeground(QColor(default_fg))
+                if fg:
+                    fmt.setForeground(QColor(fg))
+                if bold:
+                    fmt.setFontWeight(QFont.Weight.Bold)
+                else:
+                    fmt.setFontWeight(QFont.Weight.Normal)
+                
+                if not cursor.atBlockEnd():
+                    lines = part.split('\n')
+                    for j, line in enumerate(lines):
+                        if j > 0:
+                            cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+                            cursor.insertText('\n', fmt)
+                        if line:
+                            pos = cursor.position()
+                            cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+                            remaining = len(cursor.selectedText())
+                            cursor.setPosition(pos)
+                            chars_to_replace = min(len(line), remaining)
+                            if chars_to_replace > 0:
+                                cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, chars_to_replace)
+                                cursor.removeSelectedText()
+                            self._insert_text_with_traceback(cursor, line, fmt)
+                else:
+                    self._insert_text_with_traceback(cursor, part, fmt)
+
+    def _insert_text_with_traceback(self, cursor: QTextCursor, text: str, fmt: QTextCharFormat):
+        m = re.search(r'File "([^"]+)", line (\d+)', text)
+        if m:
+            path = m.group(1)
+            line_num = m.group(2)
             
-            m = re.search(r'File "([^"]+)", line (\d+)', fragment)
-            if m:
-                path = m.group(1)
-                line_num = m.group(2)
-                
-                link_fmt = QTextCharFormat(fmt)
-                link_fmt.setAnchor(True)
-                safe_path = urllib.parse.quote(path)
-                link_fmt.setAnchorHref(f"traceback:///?path={safe_path}&line={line_num}")
-                link_fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
-                
-                cursor.insertText(fragment[:m.start()], fmt)
-                cursor.insertText(fragment[m.start():m.end()], link_fmt)
-                cursor.insertText(fragment[m.end():], fmt)
-            else:
-                cursor.insertText(fragment, fmt)
+            link_fmt = QTextCharFormat(fmt)
+            link_fmt.setAnchor(True)
+            safe_path = urllib.parse.quote(path)
+            link_fmt.setAnchorHref(f"traceback:///?path={safe_path}&line={line_num}")
+            link_fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
+            
+            cursor.insertText(text[:m.start()], fmt)
+            cursor.insertText(text[m.start():m.end()], link_fmt)
+            cursor.insertText(text[m.end():], fmt)
+        else:
+            cursor.insertText(text, fmt)
 
     def _on_anchor_clicked(self, url):
         if url.scheme() == "traceback":
