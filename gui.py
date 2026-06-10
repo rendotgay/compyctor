@@ -33,7 +33,7 @@ def exception_hook(exctype, value, tb):
         app = QApplication.instance()
         if app is None:
             app = QApplication(sys.argv)
-            
+
         msg_box = QMessageBox()
         msg_box.setIcon(QMessageBox.Icon.Critical)
         msg_box.setWindowTitle("Compyctor - Application Crash")
@@ -56,11 +56,11 @@ def exception_hook(exctype, value, tb):
         except Exception:
             print("Failed to show GUI message box for crash.", file=sys.stderr)
             print(tb_text, file=sys.stderr)
-            
+
     sys.exit(1)
 
 sys.excepthook = exception_hook
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 
 _COOLDOWN_OPTIONS = [5, 10, 30, 60, 300]
 
